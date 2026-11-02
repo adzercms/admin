@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 namespace AdzerCMS\Admin\Tests;
 
+use AdzerCMS\Admin\Tests\Fixture\Branches;
+use AdzerCMS\Contracts\Account\Newcomer;
+use AdzerCMS\Contracts\Refusal;
 use AdzerCMS\Contracts\Setting\Tab;
 use AdzerCMS\Contracts\Ui\Scheme;
 use AdzerCMS\Core\Account\ConsentKind;
@@ -39,6 +42,7 @@ use PHPUnit\Framework\Attributes\Group;
 use Symfony\Component\DomCrawler\Crawler;
 use Symfony\Component\PasswordHasher\Hasher\UserPasswordHasherInterface;
 use Symfony\Component\Routing\RouterInterface;
+use Symfony\Component\Translation\TranslatableMessage;
 
 final class AdminWebTest extends SchemaTestCase
 {
@@ -128,6 +132,7 @@ final class AdminWebTest extends SchemaTestCase
 
     #[Group('ACMS-CORE-0068')]
     #[Group('ACMS-CORE-0099')]
+    #[Group('ACMS-CORE-1028')]
     #[Group('ACMS-US-0003')]
     public function testContactsAreKeptNormalizedAndTakenOnesNameTheirHolder(): void
     {
@@ -143,7 +148,7 @@ final class AdminWebTest extends SchemaTestCase
         $url = \sprintf('/admin/users/%d', $user->getId());
         foreach (['phone' => '12345', 'email' => 'no-at-sign'] as $kind => $value) {
             $page = $this->post($url, [$kind => $value] + ['phone' => '79997654321', 'email' => 'abonent@example.org']);
-            self::assertSame(self::phrase('admin.user.malformed.'.$kind), trim($page->filter('.flash-error')->text()));
+            self::assertSame(self::phrase('core.contact.malformed.'.$kind), trim($page->filter('.flash-error')->text()));
         }
 
         $kept = $this->reread($user);
@@ -153,23 +158,28 @@ final class AdminWebTest extends SchemaTestCase
         foreach (['phone' => '8 999 123 45 67', 'email' => 'holder@example.org'] as $kind => $value) {
             $dialog = $this->post('/admin/users/new', [$kind => $value]);
             self::assertResponseIsSuccessful();
-            self::assertSame(self::phrase('admin.user.taken.'.$kind, ['id' => $holder->getId()]), trim($dialog->filter('.flash-error')->text()));
+            self::assertSame(self::phrase('core.contact.taken.'.$kind, ['id' => $holder->getId()]), trim($dialog->filter('.flash-error')->text()));
         }
         self::assertSame(3, self::service(UserRepository::class)->count([]));
     }
 
     #[Group('ACMS-CORE-0066')]
     #[Group('ACMS-CORE-0163')]
+    #[Group('ACMS-CORE-1030')]
     #[Group('ACMS-US-0003')]
     public function testCreationAsksNothingAndKeepsWhatIsGiven(): void
     {
         $this->client->loginUser($this->admin);
+        self::assertCount(0, $this->client->request('GET', '/admin/users/new')->filter('[name="role"]'), 'no feature module has a cabinet section');
 
-        $this->post('/admin/users/new');
+        $this->post('/admin/users/new', ['role' => Role::User->value]);
         $empty = $this->created();
 
         self::assertSame(Status::Active, $empty->getStatus());
-        self::assertSame(Role::User, $empty->getRole());
+        self::assertSame(Role::Admin, $empty->getRole());
+        $member = $this->record('79990000010');
+        $this->post(\sprintf('/admin/users/%d', $member->getId()), ['phone' => '79990000010', 'role' => Role::Admin->value]);
+        self::assertSame(Role::User, $this->reread($member)->getRole(), 'a saved record keeps its role without the role field');
         self::assertNull($empty->getPhone());
         self::assertNull($empty->getEmail());
         self::assertNull($empty->getComment());
@@ -185,6 +195,37 @@ final class AdminWebTest extends SchemaTestCase
         self::assertSame('Key at the neighbour', $named->getNote());
         self::assertSame('Ivanov', $named->getLastName());
         self::assertTrue(self::service(UserPasswordHasherInterface::class)->isPasswordValid($named, 'given-password'));
+    }
+
+    #[Group('ACMS-US-0003')]
+    public function testCreationGoesToAModulePlaceAndClosesHereWhenTheModuleSays(): void
+    {
+        $branches = self::service(Branches::class);
+        $branches->branches = ['north' => 'North office'];
+        $this->client->loginUser($this->admin);
+        $users = \count(self::service(UserRepository::class)->findAll());
+
+        $form = $this->client->request('GET', '/admin/users/new');
+        self::assertSame(['', 'north'], $form->filter('select[name="place"] option')->each(static fn (Crawler $option): string => (string) $option->attr('value')));
+
+        $this->post('/admin/users/new', ['place' => 'north', 'last_name' => 'Ivanov', 'first_name' => 'Ivan', 'phone' => '+7 (999) 765-43-21', 'password' => 'given-password']);
+        self::assertSame('/admin/users', $this->client->getResponse()->headers->get('HX-Redirect'));
+        self::assertEquals(new Newcomer('Ivanov', 'Ivan', '', '79997654321', null, 'given-password'), $branches->created['north']);
+        self::assertCount($users, self::service(UserRepository::class)->findAll());
+
+        $branches->refusal = new Refusal(new TranslatableMessage('Branch is offline'));
+        self::assertSame('Branch is offline', trim($this->post('/admin/users/new', ['place' => 'north'])->filter('.flash-error')->text()));
+        self::assertSame(self::phrase('admin.user.place'), trim($this->post('/admin/users/new', ['place' => 'south'])->filter('.flash-error')->text()));
+
+        $branches->open = false;
+        self::assertSame(['north'], $this->client->request('GET', '/admin/users/new')->filter('select[name="place"] option')->each(static fn (Crawler $option): string => (string) $option->attr('value')));
+        self::assertSame(self::phrase('admin.user.place'), trim($this->post('/admin/users/new', ['place' => ''])->filter('.flash-error')->text()));
+        self::assertCount($users, self::service(UserRepository::class)->findAll());
+
+        $branches->branches = [];
+        self::assertCount(0, $this->client->request('GET', '/admin/users')->filter('[hx-get="/admin/users/new"]'));
+        $this->client->request('GET', '/admin/users/new');
+        self::assertResponseStatusCodeSame(404);
     }
 
     #[Group('ACMS-CORE-0101')]
@@ -428,7 +469,7 @@ final class AdminWebTest extends SchemaTestCase
 
         $page = $this->client->request('GET', \sprintf('/admin/users/%d', $other->getId()));
         self::assertCount(1, $page->filter('form[action$="/drop"]'));
-        self::assertCount(2, $page->filter('select[name="status"], select[name="role"]'));
+        self::assertCount(1, $page->filter('select[name="status"]'));
     }
 
     #[Group('ACMS-CORE-0021')]

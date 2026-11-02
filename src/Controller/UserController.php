@@ -4,10 +4,16 @@ declare(strict_types=1);
 
 namespace AdzerCMS\Admin\Controller;
 
+use AdzerCMS\Contracts\Account\Newcomer;
+use AdzerCMS\Contracts\Account\UserCreation;
+use AdzerCMS\Contracts\Account\UserPlaces;
+use AdzerCMS\Contracts\Refusal;
 use AdzerCMS\Contracts\Ui\Tabs;
 use AdzerCMS\Core\Account\ContactKind;
+use AdzerCMS\Core\Account\Contacts;
 use AdzerCMS\Core\Account\Password;
 use AdzerCMS\Core\Account\Role;
+use AdzerCMS\Core\Account\Roles;
 use AdzerCMS\Core\Account\Status;
 use AdzerCMS\Core\Account\UserRemoval;
 use AdzerCMS\Core\Account\UserRows;
@@ -21,6 +27,7 @@ use AdzerCMS\Core\Ui\Back;
 use AdzerCMS\Core\Ui\PageTabs;
 use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
+use Symfony\Component\DependencyInjection\Attribute\AutowireIterator;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\PasswordHasher\Hasher\UserPasswordHasherInterface;
@@ -38,13 +45,26 @@ final class UserController extends AbstractController
     private const PROFILE = 'profile';
     private const NOTES = 'notes';
 
+    private readonly ?UserPlaces $places;
+
+    /**
+     * @param iterable<UserPlaces>   $places
+     * @param iterable<UserCreation> $creations
+     */
     public function __construct(
         private readonly UserRepository $users,
         private readonly UserRows $rows,
+        private readonly Contacts $contacts,
         private readonly UserRemoval $removal,
         private readonly PageTabs $pages,
+        private readonly Roles $roles,
         private readonly EntityManagerInterface $em,
+        #[AutowireIterator(UserPlaces::class)]
+        iterable $places,
+        #[AutowireIterator(UserCreation::class)]
+        private readonly iterable $creations,
     ) {
+        $this->places = [...$places][0] ?? null;
     }
 
     #[Route('', name: 'admin_users', methods: ['GET'])]
@@ -57,16 +77,37 @@ final class UserController extends AbstractController
             return $this->render(UserRows::TEMPLATE, $context);
         }
 
-        return $this->render('@Admin/admin/users.html.twig', $context + ['counts' => $this->users->counts()]);
+        return $this->render('@Admin/admin/users.html.twig', $context + [
+            'counts' => $this->users->counts(),
+            'creation' => $this->here() || [] !== ($this->places?->places() ?? []),
+        ]);
     }
 
     #[Route('/new', name: 'admin_user_new', methods: ['GET', 'POST'])]
     public function create(Request $request, UserPasswordHasherInterface $hasher): Response
     {
+        $here = $this->here();
+        $places = $this->places?->places() ?? [];
+        if (!$here && [] === $places) {
+            throw $this->createNotFoundException();
+        }
+
         $user = new User();
         $error = null;
+        $place = $request->request->getString('place');
 
-        if ($request->isMethod('POST')) {
+        if ($request->isMethod('POST') && ('' !== $place || !$here)) {
+            $error = isset($places[$place]) ? $this->place($place, $user, $request) : t('admin.user.place');
+
+            if (null === $error) {
+                $this->addFlash('success', t('admin.user.placed', ['place' => $places[$place]]));
+
+                $response = new Response('', Response::HTTP_NO_CONTENT);
+                $response->headers->set('HX-Redirect', $this->generateUrl('admin_users'));
+
+                return $response;
+            }
+        } elseif ($request->isMethod('POST')) {
             $error = $this->fill($user, $request, $hasher);
 
             if (null === $error) {
@@ -81,7 +122,15 @@ final class UserController extends AbstractController
             }
         }
 
-        return $this->render('@Admin/admin/_user_new.html.twig', ['user' => $user, 'error' => $error]);
+        return $this->render('@Admin/admin/_user_new.html.twig', [
+            'user' => $user,
+            'error' => $error,
+            'here' => $here,
+            'places' => $places,
+            'place' => $place,
+            'place_label' => $this->places?->label(),
+            'roles' => $this->roles->chosen(),
+        ]);
     }
 
     #[Route('/{id}', name: 'admin_user', requirements: ['id' => '\d+'], methods: ['GET', 'POST'])]
@@ -117,6 +166,7 @@ final class UserController extends AbstractController
             'error' => $error,
             'kept' => self::PROFILE === $tab && $user !== $operator ? $this->removal->kept($user) : null,
             'fragment' => $fragment,
+            'roles' => $this->roles->chosen(),
         ]);
     }
 
@@ -194,23 +244,58 @@ final class UserController extends AbstractController
         ]);
     }
 
+    private function here(): bool
+    {
+        foreach ($this->creations as $creation) {
+            if (!$creation->here()) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private function place(string $place, User $user, Request $request): ?TranslatableInterface
+    {
+        $input = $request->request;
+        $user->setName($input->getString('last_name'), $input->getString('first_name'), $input->getString('middle_name'));
+        $contacts = $this->contacts($request, null);
+        if (!\is_array($contacts)) {
+            return $contacts;
+        }
+        $user->setPhone($contacts[ContactKind::Phone->value])->setEmail($contacts[ContactKind::Email->value]);
+
+        $password = $input->getString('password');
+        $refusal = '' === $password ? null : Password::refusal($password);
+
+        return ($refusal ?? $this->places?->create($place, new Newcomer(
+            (string) $user->getLastName(),
+            (string) $user->getFirstName(),
+            (string) $user->getMiddleName(),
+            $user->getPhone(),
+            $user->getEmail(),
+            $password,
+        )))?->reason;
+    }
+
+    /** @return array<string, ?string>|TranslatableInterface */
+    private function contacts(Request $request, ?User $user): array|TranslatableInterface
+    {
+        $values = [];
+        foreach (ContactKind::cases() as $kind) {
+            $values[$kind->value] = $request->request->getString($kind->value);
+        }
+        $contacts = null === $user ? Contacts::forms($values) : $this->contacts->free($values, $user);
+
+        return $contacts instanceof Refusal ? $contacts->reason : $contacts;
+    }
+
     private function fill(User $user, Request $request, UserPasswordHasherInterface $hasher): ?TranslatableInterface
     {
         $input = $request->request;
-        $contacts = [];
-
-        foreach (ContactKind::cases() as $kind) {
-            $value = trim($input->getString($kind->value));
-            $contact = '' === $value ? null : $kind->normalize($value);
-            if ('' !== $value && null === $contact) {
-                return t('admin.user.malformed.'.$kind->value);
-            }
-
-            $holder = null === $contact ? null : $this->users->findOneBy([$kind->value => $contact]);
-            if (null !== $holder && $holder !== $user) {
-                return t('admin.user.taken.'.$kind->value, ['id' => $holder->getId()]);
-            }
-            $contacts[$kind->value] = $contact;
+        $contacts = $this->contacts($request, $user);
+        if (!\is_array($contacts)) {
+            return $contacts;
         }
 
         $password = $input->getString('password');
@@ -230,8 +315,13 @@ final class UserController extends AbstractController
             ->setEmail($contacts[ContactKind::Email->value]);
 
         if ($user !== $this->getUser()) {
-            $user->setStatus($input->getEnum('status', Status::class, Status::Active))
-                ->setRole($input->getEnum('role', Role::class, Role::User));
+            $user->setStatus($input->getEnum('status', Status::class, Status::Active));
+
+            if ($this->roles->chosen()) {
+                $user->setRole($input->getEnum('role', Role::class, Role::User));
+            } elseif (null === $user->getId()) {
+                $user->setRole(Role::Admin);
+            }
         }
 
         $this->em->persist($user);

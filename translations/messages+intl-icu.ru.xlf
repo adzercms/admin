@@ -49,6 +49,12 @@
         <target>Настройки</target>
       </segment>
     </unit>
+    <unit id="admin.menu.traffic">
+      <segment>
+        <source>admin.menu.traffic</source>
+        <target>Посещаемость</target>
+      </segment>
+    </unit>
     <unit id="admin.menu.translations">
       <segment>
         <source>admin.menu.translations</source>
@@ -403,6 +409,60 @@
         <target>ZIP</target>
       </segment>
     </unit>
+    <unit id="admin.traffic.empty">
+      <segment>
+        <source>admin.traffic.empty</source>
+        <target>За этот срок посещений нет</target>
+      </segment>
+    </unit>
+    <unit id="admin.traffic.moment">
+      <segment>
+        <source>admin.traffic.moment</source>
+        <target>Период</target>
+      </segment>
+    </unit>
+    <unit id="admin.traffic.step.day">
+      <segment>
+        <source>admin.traffic.step.day</source>
+        <target>По дням</target>
+      </segment>
+    </unit>
+    <unit id="admin.traffic.step.month">
+      <segment>
+        <source>admin.traffic.step.month</source>
+        <target>По месяцам</target>
+      </segment>
+    </unit>
+    <unit id="admin.traffic.step.week">
+      <segment>
+        <source>admin.traffic.step.week</source>
+        <target>По неделям</target>
+      </segment>
+    </unit>
+    <unit id="admin.traffic.total">
+      <segment>
+        <source>admin.traffic.total</source>
+        <target>За период</target>
+      </segment>
+    </unit>
+    <unit id="admin.traffic.views">
+      <segment>
+        <source>admin.traffic.views</source>
+        <target>Просмотры</target>
+      </segment>
+    </unit>
+    <unit id="admin.traffic.visitors">
+      <segment>
+        <source>admin.traffic.visitors</source>
+        <target>Посетители</target>
+      </segment>
+    </unit>
+    <unit id="admin.traffic.visits">
+      <segment>
+        <source>admin.traffic.visits</source>
+        <target>Визиты</target>
+      </segment>
+    </unit>
     <unit id="admin.translation.catalog">
       <segment>
         <source>admin.translation.catalog</source>
@@ -493,6 +553,12 @@
         <target>Имя</target>
       </segment>
     </unit>
+    <unit id="admin.user.here">
+      <segment>
+        <source>admin.user.here</source>
+        <target>Этот сайт</target>
+      </segment>
+    </unit>
     <unit id="admin.user.info">
       <segment>
         <source>admin.user.info</source>
@@ -509,18 +575,6 @@
       <segment>
         <source>admin.user.last_name</source>
         <target>Фамилия</target>
-      </segment>
-    </unit>
-    <unit id="admin.user.malformed.email">
-      <segment>
-        <source>admin.user.malformed.email</source>
-        <target>Почта задана неверно</target>
-      </segment>
-    </unit>
-    <unit id="admin.user.malformed.phone">
-      <segment>
-        <source>admin.user.malformed.phone</source>
-        <target>Телефон задан неверно</target>
       </segment>
     </unit>
     <unit id="admin.user.middle_name">
@@ -607,6 +661,18 @@
         <target>Телефон</target>
       </segment>
     </unit>
+    <unit id="admin.user.place">
+      <segment>
+        <source>admin.user.place</source>
+        <target>Выберите, где завести пользователя</target>
+      </segment>
+    </unit>
+    <unit id="admin.user.placed">
+      <segment>
+        <source>admin.user.placed</source>
+        <target>Пользователь заведён: {place}</target>
+      </segment>
+    </unit>
     <unit id="admin.user.profile">
       <segment>
         <source>admin.user.profile</source>
@@ -647,18 +713,6 @@
       <segment>
         <source>admin.user.switch</source>
         <target>Войти как пользователь</target>
-      </segment>
-    </unit>
-    <unit id="admin.user.taken.email">
-      <segment>
-        <source>admin.user.taken.email</source>
-        <target>Почта занята пользователем #{id}</target>
-      </segment>
-    </unit>
-    <unit id="admin.user.taken.phone">
-      <segment>
-        <source>admin.user.taken.phone</source>
-        <target>Телефон занят пользователем #{id}</target>
       </segment>
     </unit>
     <unit id="admin.user.title">
